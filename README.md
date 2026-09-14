@@ -22,7 +22,6 @@ Prompt commands live in [`commands`](commands):
 Skills live in [`skills`](skills). Each skill has a `SKILL.md` plus any helper scripts it needs.
 
 - [`/audio-transcription`](skills/audio-transcription) - Transcribe audio files with a local Whisper model, with custom prompts and language hints.
-- [`/frontend-design`](skills/frontend-design) - Create distinctive, production-ready frontend UI with strong visual direction.
 - [`/ghidra`](skills/ghidra) - Run Ghidra headless analysis for binaries, functions, strings, symbols, call graphs, and decompilation.
 - [`/github`](skills/github) - Use the `gh` CLI for GitHub issues, pull requests, runs, and API queries.
 - [`/google-workspace`](skills/google-workspace) - Access Drive, Docs, Calendar, Gmail, Sheets, Slides, Chat, and People APIs through local helper scripts.
@@ -55,6 +54,7 @@ Pi extensions live in [`extensions`](extensions):
 - [`todos.ts`](extensions/todos.ts) - `/todos` TUI plus `todo` tool for file-backed tasks in `.pi/todos` or `PI_TODO_PATH`.
 - [`trust-github-repos.ts`](extensions/trust-github-repos.ts) - Automatically trusts GitHub checkouts owned by `earendil-works` or `zzerding`.
 - [`uv.ts`](extensions/uv.ts) - Replaces the bash tool with a `uv`-aware version that injects Python command shims and blocks common non-`uv` workflows.
+- [`view-image.ts`](extensions/view-image.ts) - Fallback image viewer for terminals that cannot render images inline.
 - [`whimsical.ts`](extensions/whimsical.ts) - Replaces the default thinking/status text with random whimsical phrases.
 
 ## Themes

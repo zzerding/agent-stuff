@@ -18,7 +18,7 @@ Use this skill whenever the user asks to transcribe an audio/video file, a Voice
 Run from this skill directory:
 
 ```bash
-cd /Users/zzerd/Documents/src/agents/agent-stuff/skills/audio-transcription
+cd ~/.pi/agent/packages/@zzerd/skills/audio-transcription
 ./transcribe-audio.py "/path/to/audio.m4a" --language en --quality balanced
 ```
 
@@ -52,7 +52,7 @@ Default model IDs:
 Pre-cache / refresh both models:
 
 ```bash
-cd /Users/zzerd/Documents/src/agents/agent-stuff/skills/audio-transcription
+cd ~/.pi/agent/packages/@zzerd/skills/audio-transcription
 ./precache-models.py
 ```
 
