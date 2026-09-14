@@ -8,6 +8,7 @@ All notable changes to @zzerd/pi are documented here.
 * Removed skills I don't use: `anachb`, `oebb-scotty`, `commit`, `apple-mail`, `sentry`, `tmux`, `openscad`, `audio-transcription`, `google-workspace`.
 * Removed the `btw` extension in favor of the independently maintained `@narumitw/pi-btw` package.
 * Updated `trust-github-repos` to trust `zzerding` instead of `mitsuhiko`.
+* Removed the `subagent` extension in favor of the installed [edxeth/pi-subagents](https://github.com/edxeth/pi-subagents) package.
 * Fixed the notify extension leaking OSC 8 hyperlink text into fullscreen prompt editors.
 
 ## 1.6.0
