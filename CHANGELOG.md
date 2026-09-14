@@ -2,7 +2,7 @@
 
 All notable changes to @zzerd/pi are documented here.
 
-## Unreleased
+## 0.2.0
 
 * Forked from [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff) and republished as `@zzerd/pi`.
 * Removed skills I don't use: `anachb`, `oebb-scotty`, `commit`, `apple-mail`, `sentry`, `tmux`, `openscad`, `audio-transcription`, `google-workspace`.
