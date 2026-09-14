@@ -6,6 +6,7 @@ All notable changes to @zzerd/pi are documented here.
 
 * Forked from [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff) and republished as `@zzerd/pi`.
 * Removed skills I don't use: `anachb`, `oebb-scotty`, `commit`, `apple-mail`, `sentry`, `tmux`, `openscad`, `audio-transcription`, `google-workspace`.
+* Removed the `btw` extension in favor of the independently maintained `@narumitw/pi-btw` package.
 * Updated `trust-github-repos` to trust `zzerding` instead of `mitsuhiko`.
 * Fixed the notify extension leaking OSC 8 hyperlink text into fullscreen prompt editors.
 
