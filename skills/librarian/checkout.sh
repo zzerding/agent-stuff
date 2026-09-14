@@ -9,10 +9,10 @@ Ensure a cached checkout exists at:
   ~/.cache/checkouts/<host>/<org>/<repo>
 
 Examples:
-  checkout.sh mitsuhiko/minijinja
-  checkout.sh github.com/mitsuhiko/minijinja
-  checkout.sh https://github.com/mitsuhiko/minijinja
-  checkout.sh git@github.com:mitsuhiko/minijinja.git
+  checkout.sh zzerding/minijinja
+  checkout.sh github.com/zzerding/minijinja
+  checkout.sh https://github.com/zzerding/minijinja
+  checkout.sh git@github.com:zzerding/minijinja.git
 
 Options:
   --path-only                 Print only the checkout path.

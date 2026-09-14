@@ -18,7 +18,7 @@ Repositories are stored at:
 
 Example:
 
-`github.com/mitsuhiko/minijinja` → `~/.cache/checkouts/github.com/mitsuhiko/minijinja`
+`github.com/zzerding/minijinja` → `~/.cache/checkouts/github.com/zzerding/minijinja`
 
 ## Command
 
@@ -29,9 +29,9 @@ bash checkout.sh <repo> --path-only
 Examples:
 
 ```bash
-bash checkout.sh mitsuhiko/minijinja --path-only
-bash checkout.sh github.com/mitsuhiko/minijinja --path-only
-bash checkout.sh https://github.com/mitsuhiko/minijinja --path-only
+bash checkout.sh zzerding/minijinja --path-only
+bash checkout.sh github.com/zzerding/minijinja --path-only
+bash checkout.sh https://github.com/zzerding/minijinja --path-only
 ```
 
 The script will:
