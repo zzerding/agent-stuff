@@ -21,10 +21,8 @@ Prompt commands live in [`commands`](commands):
 
 Skills live in [`skills`](skills). Each skill has a `SKILL.md` plus any helper scripts it needs.
 
-- [`/audio-transcription`](skills/audio-transcription) - Transcribe audio files with a local Whisper model, with custom prompts and language hints.
-- [`/ghidra`](skills/ghidra) - Run Ghidra headless analysis for binaries, functions, strings, symbols, call graphs, and decompilation.
 - [`/github`](skills/github) - Use the `gh` CLI for GitHub issues, pull requests, runs, and API queries.
-- [`/google-workspace`](skills/google-workspace) - Access Drive, Docs, Calendar, Gmail, Sheets, Slides, Chat, and People APIs through local helper scripts.
+- [`/ghidra`](skills/ghidra) - Run Ghidra headless analysis for binaries, functions, strings, symbols, call graphs, and decompilation.
 - [`/librarian`](skills/librarian) - Cache and refresh remote git repositories under `~/.cache/checkouts/<host>/<org>/<repo>`.
 - [`/native-web-search`](skills/native-web-search) - Trigger native web search with concise summaries and source URLs.
 - [`/pi-share`](skills/pi-share) - Fetch and parse shared Pi session transcripts from pi-share URLs.
