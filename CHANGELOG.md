@@ -2,6 +2,10 @@
 
 All notable changes to @zzerd/pi are documented here.
 
+## Unreleased
+
+* Fixed the `answer` extension failing when a configured Codex model is rejected by the account (e.g. ChatGPT accounts without `gpt-5.4-mini`); extraction now falls back through candidate models instead of aborting.
+
 ## 0.2.0
 
 * Forked from [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff) and republished as `@zzerd/pi`.

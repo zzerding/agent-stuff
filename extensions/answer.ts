@@ -76,34 +76,36 @@ const CODEX_MODEL_IDS = ["gpt-5.4-mini", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-
 const HAIKU_MODEL_ID = "claude-haiku-4-5";
 
 /**
- * Prefer a fast configured Codex model for extraction, then haiku, then the
- * current model.
+ * Build the ordered list of candidate models: fast configured Codex models
+ * first, then haiku, then the current model. Availability (existence + auth)
+ * is checked up front; models that fail at request time are skipped by the
+ * extraction fallback loop.
  */
-async function selectExtractionModel(
+async function candidateModels(
 	currentModel: Model<Api>,
 	modelRegistry: ModelRegistry,
-): Promise<Model<Api>> {
+): Promise<Model<Api>[]> {
+	const candidates: Model<Api>[] = [];
 	for (const modelId of CODEX_MODEL_IDS) {
 		const codexModel = modelRegistry.find("openai-codex", modelId);
 		if (codexModel) {
 			const auth = await modelRegistry.getApiKeyAndHeaders(codexModel);
 			if (auth.ok) {
-				return codexModel;
+				candidates.push(codexModel);
 			}
 		}
 	}
 
 	const haikuModel = modelRegistry.find("anthropic", HAIKU_MODEL_ID);
-	if (!haikuModel) {
-		return currentModel;
+	if (haikuModel) {
+		const auth = await modelRegistry.getApiKeyAndHeaders(haikuModel);
+		if (auth.ok) {
+			candidates.push(haikuModel);
+		}
 	}
 
-	const auth = await modelRegistry.getApiKeyAndHeaders(haikuModel);
-	if (auth.ok === false) {
-		return currentModel;
-	}
-
-	return haikuModel;
+	candidates.push(currentModel);
+	return candidates;
 }
 
 function toExtractedQuestion(value: unknown): ExtractedQuestion | null {
@@ -499,48 +501,59 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Select the best model for extraction.
-			const extractionModel = await selectExtractionModel(ctx.model, ctx.modelRegistry);
+			// Ordered candidates: fast Codex models first, then haiku, then the
+			// current model. If a model is configured but rejects the request
+			// (e.g. ChatGPT accounts can't use certain Codex models), fall
+			// through to the next candidate.
+			const candidates = await candidateModels(ctx.model, ctx.modelRegistry);
 
 			// Run extraction with loader UI
 			const extractionOutcome = await ctx.ui.custom<ExtractionOutcome>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, `Extracting questions using ${extractionModel.id}...`);
+				const loader = new BorderedLoader(tui, theme, "Extracting questions...");
 				loader.onAbort = () => done({ status: "cancelled" });
 
 				const doExtract = async (): Promise<ExtractionOutcome> => {
-					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(extractionModel);
-					if (auth.ok === false) {
-						return { status: "error", message: auth.error };
-					}
-					const userMessage: UserMessage = {
-						role: "user",
-						content: [{ type: "text", text: lastAssistantText! }],
-						timestamp: Date.now(),
-					};
+					let lastError = "no candidate model available";
+					for (const extractionModel of candidates) {
+						const auth = await ctx.modelRegistry.getApiKeyAndHeaders(extractionModel);
+						if (auth.ok === false) {
+							lastError = auth.error;
+							continue;
+						}
+						const userMessage: UserMessage = {
+							role: "user",
+							content: [{ type: "text", text: lastAssistantText! }],
+							timestamp: Date.now(),
+						};
 
-					const response = await complete(
-						extractionModel,
-						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
-					);
+						const response = await complete(
+							extractionModel,
+							{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+							{ apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
+						);
 
-					if (response.stopReason === "aborted") {
-						return { status: "cancelled" };
-					}
-					if (response.stopReason === "error") {
-						return { status: "error", message: response.errorMessage ?? "question extraction failed" };
+						if (response.stopReason === "aborted") {
+							return { status: "cancelled" };
+						}
+						if (response.stopReason === "error") {
+							lastError = response.errorMessage ?? "question extraction failed";
+							continue;
+						}
+
+						const responseText = response.content
+							.filter((c): c is { type: "text"; text: string } => c.type === "text")
+							.map((c) => c.text)
+							.join("\n");
+						const result = parseExtractionResult(responseText);
+						if (!result) {
+							lastError = "question extraction returned invalid JSON";
+							continue;
+						}
+
+						return { status: "ok", result };
 					}
 
-					const responseText = response.content
-						.filter((c): c is { type: "text"; text: string } => c.type === "text")
-						.map((c) => c.text)
-						.join("\n");
-					const result = parseExtractionResult(responseText);
-					if (!result) {
-						return { status: "error", message: "question extraction returned invalid JSON" };
-					}
-
-					return { status: "ok", result };
+					return { status: "error", message: lastError };
 				};
 
 				doExtract()
