@@ -2,9 +2,10 @@
 
 All notable changes to @zzerd/pi are documented here.
 
-## Unreleased
+## 0.2.1
 
 * Fixed the `answer` extension failing when a configured Codex model is rejected by the account (e.g. ChatGPT accounts without `gpt-5.4-mini`); extraction now falls back through candidate models instead of aborting.
+* Switched the `files.ts` diff quick action from VS Code (`code --diff`) to Zed (`zed --diff`).
 
 ## 0.2.0
 
