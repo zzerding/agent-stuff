@@ -1,10 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { CustomEditor, ModelSelectorComponent, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { ModelSelectorComponent, SettingsManager } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
-import type { Dirent } from "node:fs";
 
 // =============================================================================
 // Modes
@@ -17,11 +15,6 @@ type ModeSpec = {
 	provider?: string;
 	modelId?: string;
 	thinkingLevel?: ThinkingLevel;
-	/**
-	 * Optional theme color token to use for the editor border.
-	 * If unset, the border color is derived from the (current) thinking level.
-	 */
-	color?: string;
 };
 
 type ModesFile = {
@@ -168,7 +161,6 @@ type ModeSpecPatch = {
 	provider?: string | null;
 	modelId?: string | null;
 	thinkingLevel?: ThinkingLevel | null;
-	color?: string | null;
 };
 
 type ModesPatch = {
@@ -200,7 +192,7 @@ function computeModesPatch(base: ModesFile, next: ModesFile, includeCurrentMode:
 		}
 
 		const diff: ModeSpecPatch = {};
-		const fields: (keyof ModeSpec)[] = ["provider", "modelId", "thinkingLevel", "color"];
+		const fields: (keyof ModeSpec)[] = ["provider", "modelId", "thinkingLevel"];
 		for (const f of fields) {
 			const av = a[f];
 			const bv = b[f];
@@ -258,7 +250,6 @@ function sanitizeModeSpec(spec: unknown): ModeSpec {
 		provider: typeof obj.provider === "string" ? obj.provider : undefined,
 		modelId: typeof obj.modelId === "string" ? obj.modelId : undefined,
 		thinkingLevel: normalizeThinkingLevel(obj.thinkingLevel),
-		color: typeof obj.color === "string" ? obj.color : undefined,
 	};
 }
 
@@ -334,32 +325,6 @@ function orderedModeNames(modes: Record<string, ModeSpec>): string[] {
 	// Object key iteration order is stable in modern JS runtimes.
 	// NOTE: "custom" is an overlay mode and must not be selectable/persisted.
 	return Object.keys(modes).filter((name) => name !== CUSTOM_MODE_NAME);
-}
-
-function getModeBorderColor(theme: any, pi: ExtensionAPI, mode: string): (text: string) => string {
-	const spec = runtime.data.modes[mode];
-
-	// Explicit color override in JSON.
-	if (spec?.color) {
-		try {
-			// Validate early so we don't crash during render.
-			theme.getFgAnsi(spec.color as any);
-			return (text: string) => theme.fg(spec.color as any, text);
-		} catch {
-			// fall through to thinking-based colors
-		}
-	}
-
-	// Default: derive from the current thinking level.
-	try {
-		return theme.getThinkingBorderColor(pi.getThinkingLevel());
-	} catch {
-		return theme.getThinkingBorderColor("off");
-	}
-}
-
-function formatModeLabel(mode: string): string {
-	return mode;
 }
 
 async function resolveModesPath(cwd: string): Promise<string> {
@@ -453,8 +418,6 @@ const runtime: ModeRuntime = {
 	applying: false,
 };
 
-// Updated by setEditor() when the custom editor is instantiated.
-let requestEditorRender: (() => void) | undefined;
 
 async function ensureRuntime(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	const filePath = await resolveModesPath(ctx.cwd);
@@ -558,7 +521,6 @@ async function applyMode(pi: ExtensionAPI, ctx: ExtensionContext, mode: string):
 	if (mode === CUSTOM_MODE_NAME) {
 		runtime.currentMode = CUSTOM_MODE_NAME;
 		customOverlay = getCurrentSelectionSpec(pi, ctx);
-		if (ctx.hasUI) requestEditorRender?.();
 		return;
 	}
 
@@ -615,9 +577,6 @@ async function applyMode(pi: ExtensionAPI, ctx: ExtensionContext, mode: string):
 		await persistRuntime(pi, ctx, true);
 	}
 
-	if (ctx.hasUI) {
-		requestEditorRender?.();
-	}
 }
 
 const MODE_UI_CONFIGURE = "Configure modes…";
@@ -663,7 +622,7 @@ async function handleModeChoiceUI(pi: ExtensionAPI, ctx: ExtensionContext, choic
 			return;
 		}
 
-		// "store": overwrite target mode with the current overlay selection (keep target color if set)
+		// "store": overwrite target mode with the current overlay selection
 		await ensureRuntime(pi, ctx);
 		const overlay = customOverlay ?? getCurrentSelectionSpec(pi, ctx);
 		await storeSelectionIntoMode(pi, ctx, choice, overlay);
@@ -821,7 +780,6 @@ async function editModeUI(pi: ExtensionAPI, ctx: ExtensionContext, mode: string)
 			if (runtime.lastRealMode === modeName) {
 				runtime.lastRealMode = "default";
 			}
-			requestEditorRender?.();
 			ctx.ui.notify(`Deleted mode \"${modeName}\"`, "info");
 			return;
 		}
@@ -867,7 +825,6 @@ async function renameModeUI(pi: ExtensionAPI, ctx: ExtensionContext, oldName: st
 
 		if (runtime.currentMode === oldName) runtime.currentMode = newName;
 		if (runtime.lastRealMode === oldName) runtime.lastRealMode = newName;
-		requestEditorRender?.();
 
 		ctx.ui.notify(`Renamed \"${oldName}\" → \"${newName}\"`, "info");
 		return newName;
@@ -930,303 +887,8 @@ async function cycleMode(pi: ExtensionAPI, ctx: ExtensionContext, direction: 1 |
 	await applyMode(pi, ctx, next);
 }
 
-// =============================================================================
-// Prompt history
-// =============================================================================
-
-const MAX_HISTORY_ENTRIES = 100;
-const MAX_RECENT_PROMPTS = 30;
-
-interface PromptEntry {
-	text: string;
-	timestamp: number;
-}
-
-class PromptEditor extends CustomEditor {
-	public modeLabelProvider?: () => string;
-	/**
-	 * Color function for the mode label. If unset, the label inherits the border color.
-	 * We use this to keep the label consistent (e.g. same as the footer/status bar).
-	 */
-	public modeLabelColor?: (text: string) => string;
-	private lockedBorder = false;
-	private _borderColor?: (text: string) => string;
-
-	constructor(
-		tui: ConstructorParameters<typeof CustomEditor>[0],
-		theme: ConstructorParameters<typeof CustomEditor>[1],
-		keybindings: ConstructorParameters<typeof CustomEditor>[2],
-	) {
-		super(tui, theme, keybindings, { embedWorkingStatus: true });
-		delete (this as { borderColor?: (text: string) => string }).borderColor;
-		Object.defineProperty(this, "borderColor", {
-			get: () => this._borderColor ?? ((text: string) => text),
-			set: (value: (text: string) => string) => {
-				if (this.lockedBorder) return;
-				this._borderColor = value;
-			},
-			configurable: true,
-			enumerable: true,
-		});
-	}
-
-	lockBorderColor() {
-		this.lockedBorder = true;
-	}
-
-	render(width: number): string[] {
-		const lines = super.render(width);
-		const topBorder = lines[0] ?? "";
-		const mode = this.modeLabelProvider?.();
-		if (!mode) return lines;
-
-		const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-		const topPlain = stripAnsi(topBorder);
-		const isBashMode = this.getText().trimStart().startsWith("!");
-
-		// Preserve everything the built-in editor placed before the trailing border,
-		// including the embedded working spinner and any scroll indicator. An idle
-		// bash editor keeps the same two-cell border prefix before its label.
-		const trailingBorderStart = topPlain.search(/─+$/);
-		const semanticPrefix = trailingBorderStart > 0 ? topPlain.slice(0, trailingBorderStart) : "";
-		const prefixWidth = Math.min(width, semanticPrefix ? visibleWidth(semanticPrefix) : isBashMode ? 2 : 0);
-		let left = truncateToWidth(topBorder, prefixWidth, "");
-		let leftWidth = prefixWidth;
-
-		const labelColor = this.modeLabelColor ?? ((text: string) => this.borderColor(text));
-		if (isBashMode) {
-			const bashPrefix = semanticPrefix ? this.borderColor("── ") : labelColor(" ");
-			const bashLabel = labelColor("bash ");
-			left += bashPrefix + bashLabel;
-			leftWidth += visibleWidth(bashPrefix) + visibleWidth(bashLabel);
-		}
-
-		const modeLeftSpace = " ";
-		const modeRightSpace = " ";
-		const rightBorderWidth = 2;
-		const minGapWidth = 1;
-		const maxModeWidth = Math.max(
-			0,
-			width -
-				leftWidth -
-				visibleWidth(modeLeftSpace) -
-				visibleWidth(modeRightSpace) -
-				rightBorderWidth -
-				minGapWidth,
-		);
-		if (maxModeWidth <= 0) return lines;
-
-		const modeLabel = truncateToWidth(formatModeLabel(mode), maxModeWidth, "");
-		const modeWidth = visibleWidth(modeLabel);
-		const gapWidth =
-			width - leftWidth - visibleWidth(modeLeftSpace) - modeWidth - visibleWidth(modeRightSpace) - rightBorderWidth;
-		if (gapWidth < minGapWidth) return lines;
-
-		lines[0] =
-			left +
-			this.borderColor("─".repeat(gapWidth)) +
-			labelColor(modeLeftSpace) +
-			labelColor(modeLabel) +
-			labelColor(modeRightSpace) +
-			this.borderColor("─".repeat(rightBorderWidth));
-		return lines;
-	}
-
-	public requestRenderNow(): void {
-		this.tui.requestRender();
-	}
-}
-
-function extractText(content: Array<{ type: string; text?: string }>): string {
-	return content
-		.filter((item) => item.type === "text" && typeof item.text === "string")
-		.map((item) => item.text ?? "")
-		.join("")
-		.trim();
-}
-
-function collectUserPromptsFromEntries(entries: Array<any>): PromptEntry[] {
-	const prompts: PromptEntry[] = [];
-
-	for (const entry of entries) {
-		if (entry?.type !== "message") continue;
-		const message = entry?.message;
-		if (!message || message.role !== "user" || !Array.isArray(message.content)) continue;
-		const text = extractText(message.content);
-		if (!text) continue;
-		const timestamp = Number(message.timestamp ?? entry.timestamp ?? Date.now());
-		prompts.push({ text, timestamp });
-	}
-
-	return prompts;
-}
-
-function getSessionDirForCwd(cwd: string): string {
-	const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-	return path.join(getGlobalAgentDir(), "sessions", safePath);
-}
-
-async function readTail(filePath: string, maxBytes = 256 * 1024): Promise<string> {
-	let fileHandle: fs.FileHandle | undefined;
-	try {
-		const stats = await fs.stat(filePath);
-		const size = stats.size;
-		const start = Math.max(0, size - maxBytes);
-		const length = size - start;
-		if (length <= 0) return "";
-
-		const buffer = Buffer.alloc(length);
-		fileHandle = await fs.open(filePath, "r");
-		const { bytesRead } = await fileHandle.read(buffer, 0, length, start);
-		if (bytesRead === 0) return "";
-		let chunk = buffer.subarray(0, bytesRead).toString("utf8");
-		if (start > 0) {
-			const firstNewline = chunk.indexOf("\n");
-			if (firstNewline !== -1) {
-				chunk = chunk.slice(firstNewline + 1);
-			}
-		}
-		return chunk;
-	} catch {
-		return "";
-	} finally {
-		await fileHandle?.close();
-	}
-}
-
-async function loadPromptHistoryForCwd(cwd: string, excludeSessionFile?: string): Promise<PromptEntry[]> {
-	const sessionDir = getSessionDirForCwd(path.resolve(cwd));
-	const resolvedExclude = excludeSessionFile ? path.resolve(excludeSessionFile) : undefined;
-	const prompts: PromptEntry[] = [];
-
-	let entries: Dirent[] = [];
-	try {
-		entries = await fs.readdir(sessionDir, { withFileTypes: true });
-	} catch {
-		return prompts;
-	}
-
-	const files = await Promise.all(
-		entries
-			.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-			.map(async (entry) => {
-				const filePath = path.join(sessionDir, entry.name);
-				try {
-					const stats = await fs.stat(filePath);
-					return { filePath, mtimeMs: stats.mtimeMs };
-				} catch {
-					return undefined;
-				}
-			}),
-	);
-
-	const sortedFiles = files
-		.filter((file): file is { filePath: string; mtimeMs: number } => Boolean(file))
-		.sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-	for (const file of sortedFiles) {
-		if (resolvedExclude && path.resolve(file.filePath) === resolvedExclude) continue;
-
-		const tail = await readTail(file.filePath);
-		if (!tail) continue;
-		const lines = tail.split("\n").filter(Boolean);
-		for (const line of lines) {
-			let entry: any;
-			try {
-				entry = JSON.parse(line);
-			} catch {
-				continue;
-			}
-			if (entry?.type !== "message") continue;
-			const message = entry?.message;
-			if (!message || message.role !== "user" || !Array.isArray(message.content)) continue;
-			const text = extractText(message.content);
-			if (!text) continue;
-			const timestamp = Number(message.timestamp ?? entry.timestamp ?? Date.now());
-			prompts.push({ text, timestamp });
-			if (prompts.length >= MAX_RECENT_PROMPTS) break;
-		}
-		if (prompts.length >= MAX_RECENT_PROMPTS) break;
-	}
-
-	return prompts;
-}
-
-function buildHistoryList(currentSession: PromptEntry[], previousSessions: PromptEntry[]): PromptEntry[] {
-	const all = [...currentSession, ...previousSessions];
-	all.sort((a, b) => a.timestamp - b.timestamp);
-
-	const seen = new Set<string>();
-	const deduped: PromptEntry[] = [];
-	for (const prompt of all) {
-		const key = `${prompt.timestamp}:${prompt.text}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
-		deduped.push(prompt);
-	}
-
-	return deduped.slice(-MAX_HISTORY_ENTRIES);
-}
-
 // Overlay mode state ("custom"). Not selectable, not cycled into.
 let customOverlay: ModeSpec | null = null;
-
-let loadCounter = 0;
-
-function historiesMatch(a: PromptEntry[], b: PromptEntry[]): boolean {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i += 1) {
-		if (a[i]?.text !== b[i]?.text || a[i]?.timestamp !== b[i]?.timestamp) return false;
-	}
-	return true;
-}
-
-function setEditor(pi: ExtensionAPI, ctx: ExtensionContext, history: PromptEntry[]) {
-	const uiTheme = ctx.ui.theme;
-	ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-		const editor = new PromptEditor(tui, theme, keybindings);
-		requestEditorRender = () => editor.requestRenderNow();
-		editor.modeLabelProvider = () => runtime.currentMode;
-		// Keep the mode label color stable (match footer/status bar).
-		editor.modeLabelColor = (text: string) => uiTheme.fg("dim", text);
-		const borderColor = (text: string) => {
-			const isBashMode = editor.getText().trimStart().startsWith("!");
-			if (isBashMode) {
-				return uiTheme.getBashModeBorderColor()(text);
-			}
-			return getModeBorderColor(uiTheme, pi, runtime.currentMode)(text);
-		};
-
-		editor.borderColor = borderColor;
-		editor.lockBorderColor();
-		for (const prompt of history) {
-			editor.addToHistory?.(prompt.text);
-		}
-		return editor;
-	});
-}
-
-function applyEditor(pi: ExtensionAPI, ctx: ExtensionContext) {
-	if (!ctx.hasUI) return;
-
-	const sessionFile = ctx.sessionManager.getSessionFile();
-	const currentEntries = ctx.sessionManager.getBranch();
-	const currentPrompts = collectUserPromptsFromEntries(currentEntries);
-	const immediateHistory = buildHistoryList(currentPrompts, []);
-
-	const currentLoad = ++loadCounter;
-	const initialText = ctx.ui.getEditorText();
-	setEditor(pi, ctx, immediateHistory);
-
-	void (async () => {
-		const previousPrompts = await loadPromptHistoryForCwd(ctx.cwd, sessionFile ?? undefined);
-		if (currentLoad !== loadCounter) return;
-		if (ctx.ui.getEditorText() !== initialText) return;
-		const history = buildHistoryList(currentPrompts, previousPrompts);
-		if (historiesMatch(history, immediateHistory)) return;
-		setEditor(pi, ctx, history);
-	})();
-}
 
 // =============================================================================
 // Extension Export
@@ -1314,7 +976,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		applyEditor(pi, ctx);
 	});
 
 	pi.on("model_select", async (event, ctx) => {
@@ -1339,9 +1000,6 @@ export default function (pi: ExtensionAPI) {
 		};
 
 		// Do not persist/select custom.
-		if (ctx.hasUI) {
-			requestEditorRender?.();
-		}
 	});
 
 }

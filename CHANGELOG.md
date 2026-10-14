@@ -2,6 +2,11 @@
 
 All notable changes to @zzerd/pi are documented here.
 
+## 0.2.2
+
+* Simplified the `prompt-editor` extension by removing custom editor rendering and prompt-history loading; `/mode` selection and its shortcuts now use Pi's default prompt editor.
+* Switched npm publishing to trusted publishing with OIDC provenance.
+
 ## 0.2.1
 
 * Fixed the `answer` extension failing when a configured Codex model is rejected by the account (e.g. ChatGPT accounts without `gpt-5.4-mini`); extraction now falls back through candidate models instead of aborting.
